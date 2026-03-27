@@ -1,3 +1,7 @@
+# dwarf2json (for rehosting)
+
+The primary difference from the original `dwarf2json` is that we have a functions section in the output JSON, which contains the function name, address, return type, and parameters.
+
 # Introduction
 
 `dwarf2json` is a Go utility that processes files containing symbol and type
