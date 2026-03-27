@@ -178,6 +178,17 @@ type vtypeSymbol struct {
 	ConstantData []byte                 `json:"constant_data,omitempty"`
 }
 
+type vtypeParameter struct {
+	Name string                 `json:"name"`
+	Type map[string]interface{} `json:"type"`
+}
+
+type vtypeFunction struct {
+	Address    uint64                 `json:"address"`
+	ReturnType map[string]interface{} `json:"return_type"`
+	Parameters []vtypeParameter       `json:"parameters"`
+}
+
 func newVtypeJson() *vtypeJson {
 	return &vtypeJson{
 		Metadata:  newVtypeMetadata(),
@@ -185,6 +196,7 @@ func newVtypeJson() *vtypeJson {
 		UserTypes: make(map[string]*vtypeStruct),
 		Enums:     make(map[string]*vtypeEnum),
 		Symbols:   make(map[string]*vtypeSymbol),
+		Functions: make(map[string]*vtypeFunction),
 	}
 }
 
@@ -194,6 +206,7 @@ type vtypeJson struct {
 	UserTypes map[string]*vtypeStruct   `json:"user_types"`
 	Enums     map[string]*vtypeEnum     `json:"enums"`
 	Symbols   map[string]*vtypeSymbol   `json:"symbols"`
+	Functions map[string]*vtypeFunction `json:"functions"`
 }
 
 func (doc *vtypeJson) addStruct(structType *dwarf.StructType, name, endian string, off dwarf.Offset) error {
@@ -291,6 +304,9 @@ func (doc *vtypeJson) addDwarf(data *dwarf.Data, endian string, extract Extract)
 
 	doc.BaseTypes["void"] = &vtypeBaseType{Size: 0, Signed: false, Kind: "void", Endian: endian}
 
+	// Add a tracker for our function scope
+	var currentFuncName string
+
 	symbolsCb := func(entry *dwarf.Entry, addressSize int) error {
 		switch entry.Tag {
 		case dwarf.TagVariable:
@@ -326,6 +342,76 @@ func (doc *vtypeJson) addDwarf(data *dwarf.Data, endian string, extract Extract)
 				sym.SymbolType = voidType
 			}
 			doc.Symbols[name] = sym
+		// 1. Process the Function (Subprogram)
+		case dwarf.TagSubprogram:
+			name, _ := entry.Val(dwarf.AttrName).(string)
+			if name == "" {
+				break
+			}
+			// Is this explicitly marked as just a declaration?
+			if isDecl, ok := entry.Val(dwarf.AttrDeclaration).(bool); ok && isDecl {
+				break // Skip it, it's an external prototype (like printf)
+			}
+
+			// Does it actually have a memory address in this binary?
+			var address uint64
+			if lowpc, ok := entry.Val(dwarf.AttrLowpc).(uint64); ok {
+				address = lowpc
+			} else {
+				// If it has no starting address, it's not implemented here
+				break 
+			}
+
+			currentFuncName = name // Save state so we know where to attach parameters
+
+			// Get memory address
+			if lowpc, ok := entry.Val(dwarf.AttrLowpc).(uint64); ok {
+				address = lowpc
+			}
+
+			fn := &vtypeFunction{
+				Address:    address,
+				Parameters: make([]vtypeParameter, 0),
+			}
+
+			// Get return type
+			if typOff, ok := entry.Val(dwarf.AttrType).(dwarf.Offset); ok {
+				genericType, err := data.Type(typOff)
+				if err == nil {
+					fn.ReturnType = typeName(genericType)
+				}
+			} else {
+				// If no type is specified, it returns void
+				fn.ReturnType = map[string]interface{}{"kind": "base", "name": "void"}
+			}
+
+			doc.Functions[name] = fn
+
+		// 2. Process the Arguments (Formal Parameters)
+		case dwarf.TagFormalParameter:
+			if currentFuncName == "" {
+				break // We aren't inside a function, skip it
+			}
+			
+			paramName, _ := entry.Val(dwarf.AttrName).(string)
+			if paramName == "" {
+				paramName = "unnamed"
+			}
+
+			paramType := map[string]interface{}{"kind": "base", "name": "void"}
+			if typOff, ok := entry.Val(dwarf.AttrType).(dwarf.Offset); ok {
+				genericType, err := data.Type(typOff)
+				if err == nil && genericType != nil {
+					paramType = typeName(genericType)
+				}
+			}
+
+			// Append parameter to the current function
+			fn := doc.Functions[currentFuncName]
+			fn.Parameters = append(fn.Parameters, vtypeParameter{
+				Name: paramName,
+				Type: paramType,
+			})
 		}
 		return nil
 
