@@ -197,6 +197,7 @@ func newVtypeJson() *vtypeJson {
 		Enums:     make(map[string]*vtypeEnum),
 		Symbols:   make(map[string]*vtypeSymbol),
 		Functions: make(map[string]*vtypeFunction),
+		Typedefs:  make(map[string]map[string]interface{}),
 	}
 }
 
@@ -207,6 +208,7 @@ type vtypeJson struct {
 	Enums     map[string]*vtypeEnum     `json:"enums"`
 	Symbols   map[string]*vtypeSymbol   `json:"symbols"`
 	Functions map[string]*vtypeFunction `json:"functions"`
+	Typedefs  map[string]map[string]interface{} `json:"typedefs"`
 }
 
 func (doc *vtypeJson) addStruct(structType *dwarf.StructType, name, endian string, off dwarf.Offset) error {
@@ -512,6 +514,34 @@ func (doc *vtypeJson) addDwarf(data *dwarf.Data, endian string, extract Extract)
 				err := doc.addStruct(structType, typedefType.Name, endian, entry.Offset)
 				if err != nil {
 					return fmt.Errorf("could not parse struct: %s", err)
+				}
+			} else {
+				// ADDED: For all other standard typedefs, record the mapping safely
+				var resolvedType map[string]interface{}
+
+				switch underlying := typedefType.Type.(type) {
+				case *dwarf.StructType:
+					// Manually extract the struct name (stripping the "struct " prefix)
+					name := strings.TrimPrefix(underlying.Name, "struct ")
+					resolvedType = map[string]interface{}{"kind": "struct", "name": name}
+				case *dwarf.EnumType:
+					name := strings.TrimPrefix(underlying.Name, "enum ")
+					if name != "" {
+						resolvedType = map[string]interface{}{"kind": "enum", "name": name}
+					} else {
+						// Fallback for anonymous enums to get the 'unnamed_...' generated name
+						resolvedType = typeName(underlying)
+					}
+				case *dwarf.TypedefType:
+					// Handle typedefs pointing to other typedefs
+					resolvedType = map[string]interface{}{"kind": "typedef", "name": underlying.Name}
+				default:
+					// Base types, arrays, pointers, etc.
+					resolvedType = typeName(typedefType.Type)
+				}
+
+				if resolvedType != nil {
+					doc.Typedefs[typedefType.Name] = resolvedType
 				}
 			}
 

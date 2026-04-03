@@ -1,6 +1,9 @@
 # dwarf2json (for rehosting)
 
-The primary difference from the original `dwarf2json` is that we have a functions section in the output JSON, which contains the function name, address, return type, and parameters.
+These are the differences between this `dwarf2json` and the original `dwarf2json` in the Volatility3 repository:
+- a functions section in the output JSON, which contains the function name, address, return type, and parameters
+- typedefs are included in the output JSON, which are not included in the original `dwarf2json`
+
 
 # Introduction
 
