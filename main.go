@@ -510,7 +510,7 @@ func (doc *vtypeJson) addDwarf(data *dwarf.Data, endian string, extract Extract)
 				break
 			}
 
-			if structType, ok := typedefType.Type.(*dwarf.StructType); ok && structType.Name == "" {
+			if structType, ok := typedefType.Type.(*dwarf.StructType); ok && structType.StructName == "" {
 				err := doc.addStruct(structType, typedefType.Name, endian, entry.Offset)
 				if err != nil {
 					return fmt.Errorf("could not parse struct: %s", err)
@@ -521,17 +521,11 @@ func (doc *vtypeJson) addDwarf(data *dwarf.Data, endian string, extract Extract)
 
 				switch underlying := typedefType.Type.(type) {
 				case *dwarf.StructType:
-					// Manually extract the struct name (stripping the "struct " prefix)
-					name := strings.TrimPrefix(underlying.Name, "struct ")
-					resolvedType = map[string]interface{}{"kind": "struct", "name": name}
+					// FIX: Use structName() and underlying.Kind to safely handle unions/structs
+					resolvedType = map[string]interface{}{"kind": underlying.Kind, "name": structName(underlying)}
 				case *dwarf.EnumType:
-					name := strings.TrimPrefix(underlying.Name, "enum ")
-					if name != "" {
-						resolvedType = map[string]interface{}{"kind": "enum", "name": name}
-					} else {
-						// Fallback for anonymous enums to get the 'unnamed_...' generated name
-						resolvedType = typeName(underlying)
-					}
+					// FIX: Use enumName() for safer handling
+					resolvedType = map[string]interface{}{"kind": "enum", "name": enumName(underlying)}
 				case *dwarf.TypedefType:
 					// Handle typedefs pointing to other typedefs
 					resolvedType = map[string]interface{}{"kind": "typedef", "name": underlying.Name}
@@ -684,7 +678,7 @@ func typeName(dwarfType dwarf.Type) map[string]interface{} {
 		result["kind"] = "base"
 		result["name"] = t.Common().Name
 	case *dwarf.TypedefType:
-		if structType, ok := t.Type.(*dwarf.StructType); ok && structType.Name == "" {
+		if structType, ok := t.Type.(*dwarf.StructType); ok && structType.StructName == "" {
 			result["kind"] = structType.Kind
 			result["name"] = t.Name
 		} else {
