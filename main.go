@@ -691,6 +691,24 @@ func typeName(dwarfType dwarf.Type) map[string]interface{} {
 		result["name"] = "void"
 	case *dwarf.FuncType:
 		result["kind"] = "function"
+		// Extract return type
+		if t.ReturnType != nil {
+			result["return_type"] = typeName(t.ReturnType)
+		} else {
+			// Functions with no specified return type typically return void
+			result["return_type"] = map[string]interface{}{"kind": "base", "name": "void"}
+		}
+
+		// Extract parameter types
+		var params []map[string]interface{}
+		for _, p := range t.ParamType {
+			if p != nil {
+				params = append(params, typeName(p))
+			} else {
+				params = append(params, map[string]interface{}{"kind": "base", "name": "void"})
+			}
+		}
+		result["parameters"] = params
 	// *dwarf.UnsupportedType:
 	default:
 		return nil
